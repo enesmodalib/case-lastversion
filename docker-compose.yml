@@ -1,0 +1,33 @@
+version: '3'
+services:
+  react-app:
+    image: REACT_APP_IMAGE
+    stdin_open: true
+    ports:
+      - "8080:80"
+    networks:
+      - app-network  
+    depends_on:
+      - api-server      
+  api-server:
+    image: API_SERVER_IMAGE
+    ports:
+      - "5050:5050"
+    networks:
+      - app-network   
+    depends_on:
+      - app-db
+  app-db:
+    image: mongo
+    ports:
+      - "27017:27017"
+    networks:
+      - app-network
+    volumes:
+      - db-volume:/data/db       
+networks:
+  app-network:
+    driver: bridge
+volumes:
+  db-volume:
+    driver: local  

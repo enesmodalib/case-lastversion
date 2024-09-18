@@ -1,0 +1,44 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - aws s3 cp s3://devops-case/devops-case.pem /home/ubuntu/devops-case.pem
+      - chmod 600 /home/ubuntu/devops-case.pem
+  pre_build:
+    commands:
+      - REGION=eu-central-1
+      - aws --version
+      - echo $CODEBUILD_SOURCE_VERSION
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin 062033262036.dkr.ecr.eu-central-1.amazonaws.com
+      - REPOSITORY_URI_API_SERVER=062033262036.dkr.ecr.eu-central-1.amazonaws.com/api-server
+      - REPOSITORY_URI_REACT_APP=062033262036.dkr.ecr.eu-central-1.amazonaws.com/react-app
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image...         
+      - docker build --build-arg AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI --build-arg AWS_REGION=$REGION -t $REPOSITORY_URI_API_SERVER:latest -f ./server/Dockerfile ./server/
+      - docker build --build-arg AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI --build-arg AWS_REGION=$REGION -t $REPOSITORY_URI_REACT_APP:latest -f ./client/Dockerfile ./client/
+      - echo Build completed.
+  post_build:
+    commands:
+      - echo Pushing the Docker images...
+      - NEW_IMAGE_API_SERVER=$REPOSITORY_URI_API_SERVER:master-$IMAGE_TAG
+      - docker tag $REPOSITORY_URI_API_SERVER:latest $NEW_IMAGE_API_SERVER
+      - docker push $NEW_IMAGE_API_SERVER
+      - NEW_IMAGE_REACT_APP=$REPOSITORY_URI_REACT_APP:master-$IMAGE_TAG
+      - docker tag $REPOSITORY_URI_REACT_APP:latest $NEW_IMAGE_REACT_APP
+      - docker push $NEW_IMAGE_REACT_APP
+      - echo Modifying manifests...
+      - sed -i "s|API_SERVER_IMAGE|${NEW_IMAGE_API_SERVER}|g" ./docker-compose.yml
+      - sed -i "s|REACT_APP_IMAGE|${NEW_IMAGE_REACT_APP}|g" ./docker-compose.yml
+      - echo "Transferring Docker Compose file to EC2 instance"
+      - scp -i /home/ubuntu/devops-case.pem -o StrictHostKeyChecking=no docker-compose.yml ubuntu@ec2-3-70-99-38.eu-central-1.compute.amazonaws.com:/home/ubuntu/
+      - echo "Connecting to EC2 instance and running Docker Compose"
+      - ssh -i /home/ubuntu/devops-case.pem -o StrictHostKeyChecking=no ubuntu@ec2-3-70-99-38.eu-central-1.compute.amazonaws.com "cd /home/ubuntu/ && docker-compose up -d"
+      - echo All success!
+artifacts:
+  files:
+    - docker-compose.yml
